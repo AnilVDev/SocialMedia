@@ -6,13 +6,21 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('authentication', '0003_alter_user_status'),
+        ("authentication", "0003_alter_user_status"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='user',
-            name='status',
-            field=models.CharField(choices=[('active', 'Active'), ('suspended', 'Suspended'), ('deleted', 'Deleted')], default='active', max_length=50),
+            model_name="user",
+            name="status",
+            field=models.CharField(
+                choices=[
+                    ("active", "Active"),
+                    ("suspended", "Suspended"),
+                    ("deleted", "Deleted"),
+                ],
+                default="active",
+                max_length=50,
+            ),
         ),
     ]

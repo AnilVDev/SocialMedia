@@ -14,8 +14,9 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+
 from django.contrib import admin
-from django.urls import path,include,re_path
+from django.urls import path, include, re_path
 from django.views.generic import TemplateView
 from django.conf.urls.static import static
 from django.conf import settings
@@ -24,15 +25,14 @@ from django.views.decorators.csrf import csrf_exempt
 from graphene_file_upload.django import FileUploadGraphQLView
 
 
-
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/', include('authentication.urls')),
+    path("admin/", admin.site.urls),
+    path("api/", include("authentication.urls")),
     # path('graph/',include('post_app.urls')),
     path("graphql/", csrf_exempt(GraphQLView.as_view(graphiql=True))),
-    re_path(r'^graphql', FileUploadGraphQLView.as_view(graphiql=True))
+    re_path(r"^graphql", csrf_exempt(FileUploadGraphQLView.as_view(graphiql=True))),
 ]
 
-urlpatterns+= static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-urlpatterns += [re_path(r'^.*', TemplateView.as_view(template_name='index.html'))]
+urlpatterns += [re_path(r"^.*", TemplateView.as_view(template_name="index.html"))]

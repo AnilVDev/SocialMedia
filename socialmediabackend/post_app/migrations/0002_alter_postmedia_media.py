@@ -7,13 +7,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('post_app', '0001_initial'),
+        ("post_app", "0001_initial"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='postmedia',
-            name='media',
-            field=models.ImageField(upload_to='posts/%Y/%m/%d/', validators=[django.core.validators.FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png', 'gif'])]),
+            model_name="postmedia",
+            name="media",
+            field=models.ImageField(
+                upload_to="posts/%Y/%m/%d/",
+                validators=[
+                    django.core.validators.FileExtensionValidator(
+                        allowed_extensions=["jpg", "jpeg", "png", "gif"]
+                    )
+                ],
+            ),
         ),
     ]
