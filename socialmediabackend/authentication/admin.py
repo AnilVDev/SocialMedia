@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, Follow
+from .models import User, Follow, Notification, Block
 
 
 # Register your models here.
@@ -27,3 +27,17 @@ class FollowAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Follow, FollowAdmin)
+
+
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ["id", "user", "message", "created_at", "is_seen"]
+
+
+admin.site.register(Notification, NotificationAdmin)
+
+
+class BlockAdmin(admin.ModelAdmin):
+    list_display = ["id", "blocker", "blocked", "blocked_at"]
+
+
+admin.site.register(Block, BlockAdmin)

@@ -1,4 +1,5 @@
 import graphene
+import json
 from graphene_django import DjangoObjectType
 from post_app.models import *
 from django.contrib.auth import get_user_model
@@ -11,6 +12,15 @@ import base64
 from authentication.models import *
 from django.core.files.storage import default_storage
 import uuid
+from .tasks import (
+    send_post_notification_email,
+    send_comment_notification_email,
+    send_like_notification_email,
+)
+import random
+from django.core.exceptions import PermissionDenied
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 
 def authenticate_user(func):
@@ -28,7 +38,10 @@ def authenticate_user(func):
                 )
                 user_id = decoded_token["user_id"]
                 user = get_user_model().objects.get(id=user_id)
-                return func(*args, user_id=user_id, **kwargs)
+                if user.is_active:
+                    return func(*args, user_id=user_id, **kwargs)
+                else:
+                    raise PermissionDenied("User is not active")
             except (InvalidTokenError, KeyError, get_user_model().DoesNotExist):
                 pass
         raise PermissionError("Invalid token or user not found")
@@ -132,11 +145,11 @@ class Query(graphene.ObjectType):
     )
     isLiked = graphene.Boolean(post_id=graphene.ID(required=True))
     total_likes_for_post = graphene.Int(post_id=graphene.ID(required=True))
-    all_comments = graphene.List(CommentType,post_id = graphene.ID(required= True))
-
+    all_comments = graphene.List(CommentType, post_id=graphene.ID(required=True))
+    newsfeed_posts = graphene.List(PostType)
 
     @authenticate_user
-    def resolve_posts(self, info,user_id):
+    def resolve_posts(self, info, user_id):
         print("graphql * * * ")
         user = get_user_model().objects.get(id=user_id)
         posts = Post.objects.filter(user=user)
@@ -152,11 +165,13 @@ class Query(graphene.ObjectType):
     def resolve_searchedUser(self, info, user_id, username):
         try:
             user = get_user_model().objects.get(username=username)
-            does_follow = Follow.objects.filter(follower_id =user_id, following = user).exists()
+            does_follow = Follow.objects.filter(
+                follower_id=user_id, following=user
+            ).exists()
             if does_follow:
                 posts = Post.objects.filter(user=user)
             else:
-                posts = Post.objects.filter(user=user, privacy_settings = False)
+                posts = Post.objects.filter(user=user, privacy_settings=False)
             return UserTypeWithPosts(user=user, posts=posts)
         except get_user_model().DoesNotExist:
             raise ValueError("User not found")
@@ -185,11 +200,39 @@ class Query(graphene.ObjectType):
     def resolve_all_comments(self, info, user_id, post_id):
         try:
             post = Post.objects.get(id=post_id)
-            comments = Comment.objects.filter(post=post)eb.order_by('-created_at')
+            comments = Comment.objects.filter(post=post).order_by("-created_at")
             return comments
 
         except Post.DoesNotExist:
             raise ValueError("Post does not exist")
+
+    @authenticate_user
+    def resolve_newsfeed_posts(self, info, user_id):
+        user = get_user_model().objects.get(id=user_id)
+
+        user_posts = Post.objects.filter(user=user)
+
+        following = Follow.objects.filter(follower=user)
+        following_posts = Post.objects.filter(
+            user__in=following.values_list("following", flat=True)
+        )
+
+        friends_of_friends_posts = Post.objects.filter(
+            user__in=Follow.objects.filter(
+                follower__in=following.values_list("following", flat=True)
+            ).values_list("following", flat=True)
+        )
+
+        newsfeed_posts = user_posts.union(following_posts, friends_of_friends_posts)
+
+        if not newsfeed_posts.exists():
+            random_posts = Post.objects.order_by("?")[:5]
+            newsfeed_posts = random_posts.union(newsfeed_posts)
+
+        newsfeed_posts = newsfeed_posts.order_by("-posted_at")
+
+        return newsfeed_posts
+
 
 class CreatePostMutation(graphene.Mutation):
     class Arguments:
@@ -230,6 +273,24 @@ class CreatePostMutation(graphene.Mutation):
                 image=image_data,
             )
             print("post saved")
+            followers = [follow.follower for follow in user.followers.all()]
+            for follower in followers:
+                # Notify follower using WebSocket
+                channel_layer = get_channel_layer()
+                async_to_sync(channel_layer.group_send)(
+                    f"{follower.id}",
+                    {
+                        "type": "send_notification",
+                        "value": json.dumps(
+                            {
+                                "newPostCreated": "new post",
+                                # "post_id": post.id
+                            }
+                        ),
+                    },
+                )
+            send_post_notification_email.delay(user.id)
+
             return CreatePostMutation(success=True)
         except Exception as e:
             return CreatePostMutation(success=False, error=str(e))
@@ -318,12 +379,32 @@ class LikePostMutation(graphene.Mutation):
             post = Post.objects.get(id=post_id)
 
             existing_like = Like.objects.filter(user=user, post=post).first()
-
+            existing_notification = Notification.objects.filter(
+                user=post.user,
+                like_or_comment_user=user,
+                post=post,
+                message=f"{user.first_name} {user.last_name} liked your post",
+            ).first()
+            # print("existing notify:",existing_notification)
             if existing_like:
                 existing_like.delete()
+                if existing_notification:
+                    existing_notification.delete()
                 return LikePostMutation(success=True, liked=False)
             else:
                 Like.objects.create(user=user, post=post)
+
+                if user != post.user:
+                    if existing_notification:
+                        existing_notification.delete()
+                    Notification.objects.create(
+                        user=post.user,
+                        like_or_comment_user=user,
+                        message=f"{user.first_name} {user.last_name} liked your post",
+                        post=post,
+                        is_seen=False,
+                    )
+                    send_like_notification_email.delay(user.id, post.id)
                 return LikePostMutation(success=True, liked=True)
 
         except Post.DoesNotExist:
@@ -337,11 +418,13 @@ class AddCommentMutation(graphene.Mutation):
         id = graphene.ID()
 
     success = graphene.Boolean()
+
     @authenticate_user
-    def mutate(self,info,user_id,post_id, comment):
+    def mutate(self, info, user_id, post_id, comment):
         try:
 
             post = Post.objects.get(id=post_id)
+            user = get_user_model().objects.get(id=user_id)
 
             # if id:
             #     user = get_user_model().objects.get(id=id)
@@ -349,13 +432,19 @@ class AddCommentMutation(graphene.Mutation):
             #     user = get_user_model().objects.get(id=user_id)
             user = get_user_model().objects.get(id=user_id)
 
-            comment =  Comment.objects.create(
-                user = user,
-                post = post,
-                content = comment
-            )
-            comment.save()
-            return AddCommentMutation(success = True)
+            comments = Comment.objects.create(user=user, post=post, content=comment)
+            comments.save()
+            if user != post.user:
+                Notification.objects.create(
+                    user=post.user,
+                    like_or_comment_user=user,
+                    message=f"{user.first_name} {user.last_name} commented on your post",
+                    post=post,
+                    is_seen=False,
+                )
+                send_comment_notification_email(user.id, post.id, comment)
+
+            return AddCommentMutation(success=True)
         except Post.DoesNotExist:
             raise ValueError("Post not found")
         except get_user_model().DoesNotExist:
@@ -366,10 +455,10 @@ class DeleteCommentMutation(graphene.Mutation):
     class Arguments:
         comment_id = graphene.ID()
 
-    success = graphene.Boolean(required = True)
+    success = graphene.Boolean(required=True)
 
     @authenticate_user
-    def mutate(self,info,user_id,comment_id):
+    def mutate(self, info, user_id, comment_id):
         try:
             comment = Comment.objects.get(id=comment_id)
             if comment.user_id == user_id or comment.post.user_id == user_id:
@@ -379,6 +468,7 @@ class DeleteCommentMutation(graphene.Mutation):
                 raise PermissionDenied("You are not authorized to delete this comment.")
         except Comment.DoesNotExist:
             return DeleteCommentMutation(success=False)
+
 
 class Mutation(graphene.ObjectType):
     create_post = CreatePostMutation.Field()

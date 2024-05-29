@@ -1,4 +1,5 @@
 from django.db import models
+from post_app import *
 
 # Create your models here.
 from django.contrib.auth.models import AbstractUser, PermissionsMixin, BaseUserManager
@@ -49,7 +50,9 @@ class User(AbstractUser, PermissionsMixin):
         ("suspended", "Suspended"),
         ("deleted", "Deleted"),
     ]
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default="active")
+    status_activity = models.CharField(
+        max_length=50, choices=STATUS_CHOICES, default="active"
+    )
     GENDER_CHOICES = (
         ("male", "Male"),
         ("female", "Female"),
@@ -83,3 +86,39 @@ class Follow(models.Model):
 
     def __str__(self):
         return f"{self.follower} follows {self.following}"
+
+
+class Notification(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="notifications_received"
+    )
+    like_or_comment_user = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notifications_liked_or_commented",
+    )
+    message = models.CharField(max_length=255)
+    post = models.ForeignKey(
+        "post_app.Post", null=True, blank=True, on_delete=models.CASCADE
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_seen = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.user}: {self.message}"
+
+
+class Block(models.Model):
+    blocker = models.ForeignKey(User, related_name="blocking", on_delete=models.CASCADE)
+    blocked = models.ForeignKey(
+        User, related_name="blocked_by", on_delete=models.CASCADE
+    )
+    blocked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("blocker", "blocked")
+
+    def __str__(self):
+        return f"{self.blocker.email} blocked {self.blocked.email}"

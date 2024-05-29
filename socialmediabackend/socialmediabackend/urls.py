@@ -23,11 +23,12 @@ from django.conf import settings
 from graphene_django.views import GraphQLView
 from django.views.decorators.csrf import csrf_exempt
 from graphene_file_upload.django import FileUploadGraphQLView
-
+from chat.views import test
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("authentication.urls")),
+    path("test/", test, name="test"),
     # path('graph/',include('post_app.urls')),
     path("graphql/", csrf_exempt(GraphQLView.as_view(graphiql=True))),
     re_path(r"^graphql", csrf_exempt(FileUploadGraphQLView.as_view(graphiql=True))),

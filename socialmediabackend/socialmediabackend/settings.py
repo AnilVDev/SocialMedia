@@ -37,23 +37,35 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",
+    # "channels",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_celery_results",
+    # app
     "authentication",
     "post_app",
+    "chat",
+    "familyTree",
+    # third party apps
     "rest_framework",
     "djoser",
     "corsheaders",
     "rest_framework_simplejwt",
     "graphene_django",
+    # "channels_graphql_ws",
+    # "django_filters",
+    "graphql_auth",
+    "channels_redis",
 ]
 
 GRAPHENE = {
     "SCHEMA": "socialmediabackend.schema.schema",
+    "SUBSCRIPTION_PATH": "/ws/graphql",
     "MIDDLEWARE": [
         # "post_app.authentication_middleware.AuthenticationMiddleware",
         "graphql_jwt.middleware.JSONWebTokenMiddleware",
@@ -96,8 +108,8 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "socialmediabackend.wsgi.application"
-
+# WSGI_APPLICATION = "socialmediabackend.wsgi.application"
+ASGI_APPLICATION = "socialmediabackend.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
@@ -210,3 +222,23 @@ CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:8000"]
 
 CORS_ALLOW_ALL_ORIGINS = True
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760
+
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+        },
+    },
+}
+
+# CELERY SETTINGS
+
+CELERY_BROKER_URL = "redis://127.0.0.1:6379"
+CELERY_ACCEPT_CONTENT = ["application/json"]
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TASK_SERIALIZER = "json"
+CELERY_TIMEZONE = "Asia/Kolkata"
+
+CELERY_RESULT_BACKEND = "django-db"
